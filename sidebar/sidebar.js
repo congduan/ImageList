@@ -95,7 +95,8 @@ function renderImages(images) {
     // 创建图片信息
     const imgInfo = document.createElement('div');
     imgInfo.className = 'image-info';
-    imgInfo.textContent = `${image.type.toUpperCase()}`;
+    const sizeInfo = image.width && image.height ? `${image.width}x${image.height}` : '未知尺寸';
+    imgInfo.innerHTML = `${image.type.toUpperCase()}<br>${sizeInfo}`;
     
     // 创建下载按钮
     const downloadBtn = document.createElement('button');
