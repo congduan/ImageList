@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Image List Sidebar</title>
   <link rel="stylesheet" href="sidebar.css">
-  <!-- 引入JSZip库，用于创建zip文件 -->
+  <!-- Import JSZip library for creating zip files -->
   <script src="lib/jszip.min.js"></script>
 </head>
 <body>
@@ -13,15 +13,15 @@
     <header class="sidebar-header">
       <h1>Image List</h1>
       <div class="header-actions">
-        <button id="refresh-btn">刷新</button>
-        <button id="download-all-btn">下载全部</button>
+        <button id="refresh-btn">Refresh</button>
+        <button id="download-all-btn">Download All</button>
       </div>
     </header>
     
     <div class="filter-section">
-      <label for="type-filter">过滤类型:</label>
+      <label for="type-filter">Filter by type:</label>
       <select id="type-filter">
-        <option value="all">全部</option>
+        <option value="all">All</option>
         <option value="jpg">JPG/JPEG</option>
         <option value="png">PNG</option>
         <option value="svg">SVG</option>
@@ -35,7 +35,7 @@
     <div class="images-container">
       <div id="images-list"></div>
       <div id="empty-state" class="hidden">
-        <p>当前页面没有找到图片</p>
+        <p>No images found on this page</p>
       </div>
     </div>
   </div>

@@ -1,53 +1,53 @@
-// sidebar.js - 侧边栏逻辑
+// sidebar.js - Sidebar logic
 
 /**
- * 侧边栏初始化
+ * Initialize sidebar
  */
 function initSidebar() {
-  // 绑定事件监听器
+  // Bind event listeners
   document.getElementById('refresh-btn').addEventListener('click', refreshImages);
   document.getElementById('download-all-btn').addEventListener('click', downloadAllImages);
   document.getElementById('type-filter').addEventListener('change', filterImages);
   
-  // 初始化时获取图片
+  // Get images on initialization
   refreshImages();
 }
 
 /**
- * 刷新图片列表
+ * Refresh images list
  */
 async function refreshImages() {
   try {
     let targetTabId;
     
-    // 检查是否是从新标签页打开的
+    // Check if opened from new tab
     const urlParams = new URLSearchParams(window.location.search);
     const tabIdParam = urlParams.get('tabId');
     
     if (tabIdParam) {
-      // 从URL参数获取tabId
+      // Get tabId from URL parameter
       targetTabId = parseInt(tabIdParam);
     } else {
-      // 获取当前活动标签页
+      // Get current active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       targetTabId = tab.id;
     }
     
-    // 通过background script获取图片（更可靠的通信方式）
+    // Get images through background script (more reliable communication method)
     const response = await chrome.runtime.sendMessage({ 
       action: 'getImages', 
       tabId: targetTabId 
     });
     const images = response && response.images ? response.images : [];
     
-    // 存储图片数据
+    // Store image data
     window.imagesData = images;
     
-    // 渲染图片列表
+    // Render images list
     renderImages(images);
   } catch (error) {
-    console.error('获取图片失败:', error);
-    // 尝试从localStorage获取图片数据
+    console.error('Failed to get images:', error);
+    // Try to get image data from localStorage
     const storedImages = localStorage.getItem('pageImages');
     if (storedImages) {
       const images = JSON.parse(storedImages);
@@ -60,74 +60,74 @@ async function refreshImages() {
 }
 
 /**
- * 渲染图片列表
- * @param {Array} images 图片信息数组
+ * Render images list
+ * @param {Array} images Image information array
  */
 function renderImages(images) {
   const imagesList = document.getElementById('images-list');
   const emptyState = document.getElementById('empty-state');
   
-  // 清空现有列表
+  // Clear existing list
   imagesList.innerHTML = '';
   
   if (images.length === 0) {
-    // 显示空状态
+    // Show empty state
     emptyState.classList.remove('hidden');
     return;
   }
   
-  // 隐藏空状态
+  // Hide empty state
   emptyState.classList.add('hidden');
   
-  // 添加图片数量信息
+  // Add image count information
   const imagesContainer = imagesList.parentElement;
   
-  // 移除现有的数量信息（如果存在）
+  // Remove existing count information (if exists)
   const existingCountInfo = imagesContainer.querySelector('.images-count');
   if (existingCountInfo) {
     existingCountInfo.remove();
   }
   
-  // 创建数量信息元素
+  // Create count information element
   const countInfo = document.createElement('div');
   countInfo.className = 'images-count';
-  countInfo.textContent = `找到 ${images.length} 张图片`;
+  countInfo.textContent = `Found ${images.length} images`;
   
-  // 插入到图片列表之前
+  // Insert before images list
   imagesContainer.insertBefore(countInfo, imagesList);
   
-  // 渲染图片项
+  // Render image items
   images.forEach((image, index) => {
     const imageItem = document.createElement('div');
     imageItem.className = 'image-item';
     imageItem.dataset.type = image.type;
     
-    // 创建图片预览
+    // Create image preview
     const imgPreview = document.createElement('img');
     imgPreview.className = 'image-preview';
     imgPreview.src = image.src;
     imgPreview.alt = image.alt || `Image ${index + 1}`;
     imgPreview.title = image.alt || `Image ${index + 1}`;
     
-    // 添加图片加载错误处理
+    // Add image load error handling
     let errorCount = 0;
-    const maxErrors = 2; // 最大错误次数，防止死循环
+    const maxErrors = 2; // Maximum error count to prevent infinite loop
     
     imgPreview.onerror = function() {
       errorCount++;
       
       if (errorCount > maxErrors) {
-        console.warn('图片预览多次失败，显示占位符:', image.src);
-        // 显示默认占位符
-        imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+        console.warn('Image preview failed multiple times, showing placeholder:', image.src);
+        // Show default placeholder
+        imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3ECannot preview%3C/text%3E%3C/svg%3E';
         return;
       }
       
-      console.warn('图片预览失败，尝试使用缓存数据:', image.src);
+      console.warn('Image preview failed, trying to use cached data:', image.src);
       
-      // 尝试通过background script获取缓存的图片数据
+      // Try to get cached image data through background script
       try {
-        // 获取当前标签页ID
+        // Get current tab ID
         let targetTabId;
         const urlParams = new URLSearchParams(window.location.search);
         const tabIdParam = urlParams.get('tabId');
@@ -135,14 +135,14 @@ function renderImages(images) {
         if (tabIdParam) {
           targetTabId = parseInt(tabIdParam);
         } else {
-          // 如果没有tabId参数，尝试获取当前活动标签页
+          // If no tabId parameter, try to get current active tab
           chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0]) {
               targetTabId = tabs[0].id;
               sendCachedImageRequest(targetTabId);
             } else {
-              // 显示默认占位符
-              imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+              // Show default placeholder
+              imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3ECannot preview%3C/text%3E%3C/svg%3E';
             }
           });
           return;
@@ -155,56 +155,56 @@ function renderImages(images) {
             url: image.src 
           }, (response) => {
             if (response && response.success && response.dataUrl && response.dataUrl !== image.src) {
-              // 使用缓存的data URL，确保与原始URL不同
+              // Use cached data URL, ensure it's different from original URL
               imgPreview.src = response.dataUrl;
             } else {
-              // 显示默认占位符
-              imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+              // Show default placeholder
+              imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3ECannot preview%3C/text%3E%3C/svg%3E';
             }
           });
         }
         
         sendCachedImageRequest(targetTabId);
       } catch (error) {
-        console.error('获取缓存图片失败:', error);
-        // 显示默认占位符
-        imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+        console.error('Failed to get cached image:', error);
+        // Show default placeholder
+        imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3ECannot preview%3C/text%3E%3C/svg%3E';
       }
     };
     
-    // 创建图片信息
+    // Create image information
     const imgInfo = document.createElement('div');
     imgInfo.className = 'image-info';
-    const sizeInfo = image.width > 0 && image.height > 0 ? `${image.width}x${image.height}` : '未知尺寸';
-    const typeDisplay = image.type && image.type !== 'unknown' ? image.type.toUpperCase() : '图片';
+    const sizeInfo = image.width > 0 && image.height > 0 ? `${image.width}x${image.height}` : 'Unknown size';
+    const typeDisplay = image.type && image.type !== 'unknown' ? image.type.toUpperCase() : 'Image';
     imgInfo.innerHTML = `${typeDisplay}<br>${sizeInfo}`;
     
-    // 创建下载按钮
+    // Create download button
     const downloadBtn = document.createElement('button');
     downloadBtn.className = 'download-btn';
-    downloadBtn.textContent = '下载';
+    downloadBtn.textContent = 'Download';
     downloadBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       downloadImage(image.src);
     });
     
-    // 创建图片操作容器
+    // Create image actions container
     const imgActions = document.createElement('div');
     imgActions.className = 'image-actions';
     imgActions.appendChild(downloadBtn);
     
-    // 组装图片项
+    // Assemble image item
     imageItem.appendChild(imgPreview);
     imageItem.appendChild(imgInfo);
     imageItem.appendChild(imgActions);
     
-    // 添加到列表
+    // Add to list
     imagesList.appendChild(imageItem);
   });
 }
 
 /**
- * 过滤图片
+ * Filter images
  */
 function filterImages() {
   const filterType = document.getElementById('type-filter').value;
@@ -224,8 +224,8 @@ function filterImages() {
 }
 
 /**
- * 下载单个图片
- * @param {string} url 图片URL
+ * Download single image
+ * @param {string} url Image URL
  */
 async function downloadImage(url) {
   try {
@@ -235,21 +235,21 @@ async function downloadImage(url) {
     });
     
     if (!response.success) {
-      console.error('下载失败:', response.error);
-      alert('下载失败: ' + response.error);
+      console.error('Download failed:', response.error);
+      alert('Download failed: ' + response.error);
     }
   } catch (error) {
-    console.error('下载图片失败:', error);
-    alert('下载失败: ' + error.message);
+    console.error('Failed to download image:', error);
+    alert('Download failed: ' + error.message);
   }
 }
 
 /**
- * 下载所有图片（打包成zip）
+ * Download all images (packaged as zip)
  */
 async function downloadAllImages() {
   if (!window.imagesData || window.imagesData.length === 0) {
-    alert('当前没有可下载的图片');
+    alert('No images available for download');
     return;
   }
   
@@ -261,54 +261,54 @@ async function downloadAllImages() {
   });
   
   if (filteredImages.length === 0) {
-    alert('没有符合条件的图片可下载');
+    alert('No images matching the filter criteria');
     return;
   }
   
-  if (!confirm(`确定要将 ${filteredImages.length} 张图片打包成zip文件下载吗？`)) {
+  if (!confirm(`Are you sure you want to download ${filteredImages.length} images as a zip file?`)) {
     return;
   }
   
   try {
-    // 创建JSZip实例
+    // Create JSZip instance
     const zip = new JSZip();
     let successCount = 0;
     let errorCount = 0;
     
-    // 逐个下载图片并添加到zip文件
+    // Download images one by one and add to zip file
     for (let i = 0; i < filteredImages.length; i++) {
       const image = filteredImages[i];
       try {
-        // 下载图片
+        // Download image
         const response = await fetch(image.src);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        // 获取图片数据
+        // Get image data
         const blob = await response.blob();
         
-        // 生成文件名
+        // Generate filename
         const filename = `image_${i + 1}.${image.type}`;
         
-        // 添加到zip文件
+        // Add to zip file
         zip.file(filename, blob);
         successCount++;
       } catch (error) {
-        console.error(`添加图片到zip失败 (${i + 1}/${filteredImages.length}):`, error);
+        console.error(`Failed to add image to zip (${i + 1}/${filteredImages.length}):`, error);
         errorCount++;
       }
       
-      // 避免请求过于频繁，添加短暂延迟
+      // Avoid too frequent requests, add short delay
       if (i < filteredImages.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     
-    // 生成zip文件
+    // Generate zip file
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     
-    // 创建下载链接
+    // Create download link
     const url = URL.createObjectURL(zipBlob);
     const a = document.createElement('a');
     a.href = url;
@@ -318,12 +318,12 @@ async function downloadAllImages() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
-    alert(`下载完成！成功添加 ${successCount} 张图片到zip文件，失败 ${errorCount} 张。`);
+    alert(`Download completed! Successfully added ${successCount} images to zip file, failed ${errorCount} images.`);
   } catch (error) {
-    console.error('批量下载失败:', error);
-    alert(`下载失败: ${error.message}`);
+    console.error('Batch download failed:', error);
+    alert(`Download failed: ${error.message}`);
   }
 }
 
-// 初始化侧边栏
+// Initialize sidebar
 initSidebar();
