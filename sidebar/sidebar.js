@@ -163,7 +163,7 @@ async function downloadImage(url) {
 }
 
 /**
- * 下载所有图片
+ * 下载所有图片（打包成zip）
  */
 async function downloadAllImages() {
   if (!window.imagesData || window.imagesData.length === 0) {
@@ -183,27 +183,64 @@ async function downloadAllImages() {
     return;
   }
   
-  if (!confirm(`确定要下载 ${filteredImages.length} 张图片吗？`)) {
+  if (!confirm(`确定要将 ${filteredImages.length} 张图片打包成zip文件下载吗？`)) {
     return;
   }
   
-  // 逐个下载图片
-  let successCount = 0;
-  for (const image of filteredImages) {
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'downloadImage',
-        url: image.src
-      });
-      if (response.success) {
+  try {
+    // 创建JSZip实例
+    const zip = new JSZip();
+    let successCount = 0;
+    let errorCount = 0;
+    
+    // 逐个下载图片并添加到zip文件
+    for (let i = 0; i < filteredImages.length; i++) {
+      const image = filteredImages[i];
+      try {
+        // 下载图片
+        const response = await fetch(image.src);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // 获取图片数据
+        const blob = await response.blob();
+        
+        // 生成文件名
+        const filename = `image_${i + 1}.${image.type}`;
+        
+        // 添加到zip文件
+        zip.file(filename, blob);
         successCount++;
+      } catch (error) {
+        console.error(`添加图片到zip失败 (${i + 1}/${filteredImages.length}):`, error);
+        errorCount++;
       }
-    } catch (error) {
-      console.error('下载图片失败:', error);
+      
+      // 避免请求过于频繁，添加短暂延迟
+      if (i < filteredImages.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
+    
+    // 生成zip文件
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    
+    // 创建下载链接
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `images-collection-${Date.now()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    alert(`下载完成！成功添加 ${successCount} 张图片到zip文件，失败 ${errorCount} 张。`);
+  } catch (error) {
+    console.error('批量下载失败:', error);
+    alert(`下载失败: ${error.message}`);
   }
-  
-  alert(`下载完成，成功 ${successCount} 张，失败 ${filteredImages.length - successCount} 张`);
 }
 
 // 初始化侧边栏

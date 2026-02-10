@@ -84,6 +84,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, error: error.message });
     });
     return true; // 保持消息通道开放
+  } else if (request.action === 'downloadAllImages') {
+    // 处理批量下载请求（逐个下载）
+    const images = request.images;
+    if (images && images.length > 0) {
+      downloadAllImagesAsZip(images).then((result) => {
+        sendResponse({ 
+          success: result.success, 
+          successCount: result.successCount, 
+          errorCount: result.errorCount 
+        });
+      }).catch((error) => {
+        console.error('批量下载失败:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    } else {
+      sendResponse({ success: false, error: '没有图片可下载' });
+    }
+    return true; // 保持消息通道开放
   }
 });
 
@@ -100,17 +118,13 @@ async function downloadImage(url, filename) {
       // 从base64数据中提取图片类型
       const typeMatch = url.match(/data:image\/(.*?);/);
       const extension = typeMatch ? typeMatch[1].split(';')[0] : 'png';
-      const base64Data = url.split(',')[1];
-      const blob = base64ToBlob(base64Data, `image/${extension}`);
-      const blobUrl = URL.createObjectURL(blob);
       
+      // 直接使用data URL下载
       await chrome.downloads.download({
-        url: blobUrl,
+        url: url,
         filename: filename || `image.${extension}`,
         saveAs: true
       });
-      
-      URL.revokeObjectURL(blobUrl);
     } else {
       // 下载普通URL图片
       await chrome.downloads.download({
@@ -171,6 +185,43 @@ function getExtensionFromUrl(url) {
     return match[1].split('?')[0].split('#')[0];
   }
   return null;
+}
+
+/**
+ * 批量下载图片
+ * @param {Array} images 图片信息数组
+ * @return {Promise} 下载结果
+ */
+async function downloadAllImagesAsZip(images) {
+  try {
+    let successCount = 0;
+    let errorCount = 0;
+
+    // 逐个下载图片
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      try {
+        // 为每张图片生成一个唯一的文件名
+        const filename = `image_${i + 1}_${Date.now()}.${image.type}`;
+        await downloadImage(image.src, filename);
+        successCount++;
+      } catch (error) {
+        console.error(`下载图片失败 (${i + 1}/${images.length}):`, error);
+        errorCount++;
+      }
+
+      // 避免请求过于频繁，添加短暂延迟
+      if (i < images.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    console.log(`批量下载完成: 成功 ${successCount} 张, 失败 ${errorCount} 张`);
+    return { success: true, successCount, errorCount };
+  } catch (error) {
+    console.error('批量下载失败:', error);
+    throw error;
+  }
 }
 
 /**
