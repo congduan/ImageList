@@ -1,0 +1,56 @@
+# 构建生成的文件
+*.zip
+
+# 依赖包目录
+node_modules/
+
+# 编辑器配置文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+logs
+*.log
+
+# 环境变量文件
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 临时文件
+tmp/
+temp/
+
+# OS 生成的文件
+Thumbs.db
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# 构建工具文件
+.npm
+.yarn-integrity
+
+# 测试覆盖率报告
+coverage/
+*.lcov
+
+# 类型定义文件
+*.d.ts
+
+# 打包工具文件
+.parcel-cache/
+dist/
+build/

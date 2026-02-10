@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image List Sidebar</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div class="sidebar-container">
+    <header class="sidebar-header">
+      <h1>Image List</h1>
+      <div class="header-actions">
+        <button id="refresh-btn">刷新</button>
+        <button id="download-all-btn">下载全部</button>
+      </div>
+    </header>
+    
+    <div class="filter-section">
+      <label for="type-filter">过滤类型:</label>
+      <select id="type-filter">
+        <option value="all">全部</option>
+        <option value="jpg">JPG/JPEG</option>
+        <option value="png">PNG</option>
+        <option value="svg">SVG</option>
+        <option value="webp">WebP</option>
+        <option value="base64">Base64</option>
+        <option value="gif">GIF</option>
+        <option value="bmp">BMP</option>
+      </select>
+    </div>
+    
+    <div class="images-container">
+      <div id="images-list"></div>
+      <div id="empty-state" class="hidden">
+        <p>当前页面没有找到图片</p>
+      </div>
+    </div>
+  </div>
+  
+  <script src="sidebar.js"></script>
+</body>
+</html>

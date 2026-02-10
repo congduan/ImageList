@@ -1,0 +1,16 @@
+{
+  "name": "image-list-sidebar",
+  "version": "1.0.0",
+  "description": "Chrome extension to display all images on current webpage in sidebar",
+  "main": "background.js",
+  "scripts": {
+    "build": "zip -r image-list-sidebar.zip manifest.json background.js content.js sidebar/ icons/"
+  },
+  "keywords": [
+    "chrome-extension",
+    "image-extractor",
+    "sidebar"
+  ],
+  "author": "",
+  "license": "MIT"
+}
