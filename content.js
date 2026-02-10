@@ -7,9 +7,21 @@
  */
 function parseSvgDimensions(svgContent) {
   try {
+    // 清理SVG内容，处理可能的编码问题
+    let cleanedContent = svgContent;
+    try {
+      // 尝试解码可能的URL编码
+      cleanedContent = decodeURIComponent(svgContent);
+    } catch (e) {
+      // 解码失败，使用原始内容
+    }
+    
+    // 清理SVG内容中的反引号
+    cleanedContent = cleanedContent.replace(/`/g, '');
+    
     // 创建临时DOM元素解析SVG
     const parser = new DOMParser();
-    const svgDoc = parser.parseFromString(svgContent, 'image/svg+xml');
+    const svgDoc = parser.parseFromString(cleanedContent, 'image/svg+xml');
     const svgElement = svgDoc.querySelector('svg');
     
     if (svgElement) {
@@ -26,6 +38,17 @@ function parseSvgDimensions(svgContent) {
             width = viewBoxParts[2];
             height = viewBoxParts[3];
           }
+        }
+      }
+      
+      // 尝试从style属性获取尺寸
+      if (!width || !height) {
+        const style = svgElement.getAttribute('style');
+        if (style) {
+          const widthMatch = style.match(/width:\s*(\d+\.?\d*)[\s\w]*/);
+          const heightMatch = style.match(/height:\s*(\d+\.?\d*)[\s\w]*/);
+          if (widthMatch) width = widthMatch[1];
+          if (heightMatch) height = heightMatch[1];
         }
       }
       
@@ -56,7 +79,17 @@ function parseSvgLength(length) {
   const numMatch = length.match(/([\d.]+)/);
   if (numMatch) {
     const num = parseFloat(numMatch[1]);
-    return isNaN(num) ? 0 : num;
+    if (!isNaN(num) && num > 0) {
+      return num;
+    }
+  }
+  
+  // 处理特殊情况
+  if (length === '100%') {
+    return 100;
+  }
+  if (length === '50%') {
+    return 50;
   }
   
   return 0;
@@ -261,10 +294,44 @@ function extractImages() {
   console.log('找到', imgElements.length, '个img标签');
   for (const img of imgElements) {
     let src = img.src;
-    // 处理相对路径
-    if (src && !src.startsWith('http') && !src.startsWith('data:')) {
-      src = new URL(src, window.location.href).href;
+    
+    // 检测lazy-loaded图片
+    const dataSrc = img.getAttribute('data-src');
+    const dataSrcSet = img.getAttribute('data-srcset');
+    const dataOriginal = img.getAttribute('data-original');
+    
+    // 优先使用真实的图片URL
+    if (dataSrc) {
+      src = dataSrc;
+    } else if (dataOriginal) {
+      src = dataOriginal;
     }
+    
+    // 处理相对路径和特殊URL
+    if (src && !src.startsWith('http') && !src.startsWith('data:')) {
+      // 处理协议相对URL
+      if (src.startsWith('//')) {
+        src = window.location.protocol + src;
+      } else {
+        // 处理普通相对路径
+        try {
+          src = new URL(src, window.location.href).href;
+        } catch (error) {
+          console.warn('无法解析URL:', src, error);
+          // 尝试简单的路径拼接
+          const baseUrl = window.location.href.replace(/[^/]+$/, '');
+          src = baseUrl + src;
+        }
+      }
+    }
+    
+    // 清理URL中的特殊字符和编码
+    try {
+      src = decodeURIComponent(src);
+    } catch (error) {
+      // 忽略解码错误
+    }
+    
     if (src && !seenUrls.has(src)) {
       seenUrls.add(src);
       // 尝试获取图片尺寸，优先使用naturalWidth/naturalHeight获取原始尺寸
@@ -301,6 +368,13 @@ function extractImages() {
         if (!height && img.getAttribute('height')) {
           height = parseInt(img.getAttribute('height')) || 0;
         }
+        // 从data属性中获取尺寸
+        if (!width && img.getAttribute('data-width')) {
+          width = parseInt(img.getAttribute('data-width')) || 0;
+        }
+        if (!height && img.getAttribute('data-height')) {
+          height = parseInt(img.getAttribute('data-height')) || 0;
+        }
       }
       
       // 先通过URL获取类型，然后尝试通过magic number验证
@@ -308,13 +382,29 @@ function extractImages() {
       
       // 对于可能的图片，尝试通过fetch获取并检测magic number
       if (type === 'unknown' || ['jpg', 'png', 'gif', 'webp', 'bmp', 'avif', 'tiff', 'ico'].includes(type)) {
+        // 创建局部变量保存当前src，避免闭包陷阱
+        const currentSrc = src;
         // 注意：这里不等待异步操作完成，避免阻塞提取过程
-        getImageTypeByFetch(src).then(detectedType => {
+        getImageTypeByFetch(currentSrc).then(detectedType => {
           if (detectedType !== 'unknown') {
             // 更新已提取图片的类型
-            const existingImage = images.find(img => img.src === src);
+            const existingImage = images.find(img => img.src === currentSrc);
             if (existingImage) {
               existingImage.type = detectedType;
+              // 更新localStorage中的图片类型
+              try {
+                const storedImages = localStorage.getItem('pageImages');
+                if (storedImages) {
+                  const storedImagesArray = JSON.parse(storedImages);
+                  const storedImage = storedImagesArray.find(img => img.src === currentSrc);
+                  if (storedImage) {
+                    storedImage.type = detectedType;
+                    localStorage.setItem('pageImages', JSON.stringify(storedImagesArray));
+                  }
+                }
+              } catch (error) {
+                console.warn('更新localStorage中的图片类型失败:', error);
+              }
             }
           }
         });
@@ -327,6 +417,40 @@ function extractImages() {
         height: height,
         type: type,
         elementType: 'img'
+      });
+    }
+    
+    // 处理data-srcset属性
+    if (dataSrcSet) {
+      const sources = dataSrcSet.split(',').map(item => {
+        const parts = item.trim().split(' ');
+        return parts[0];
+      });
+      
+      sources.forEach(sourceUrl => {
+        if (sourceUrl && !seenUrls.has(sourceUrl)) {
+          seenUrls.add(sourceUrl);
+          // 处理相对路径
+          let fullUrl = sourceUrl;
+          if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+            try {
+              fullUrl = new URL(fullUrl, window.location.href).href;
+            } catch (error) {
+              console.warn('无法解析URL:', fullUrl, error);
+              return;
+            }
+          }
+          
+          const type = getImageType(fullUrl);
+          images.push({
+            src: fullUrl,
+            alt: img.alt || '',
+            width: 0,
+            height: 0,
+            type: type,
+            elementType: 'img-lazy'
+          });
+        }
       });
     }
   }
@@ -351,6 +475,210 @@ function extractImages() {
       }
     } catch (error) {
       console.warn('提取canvas图片失败:', error);
+    }
+  }
+
+  // 提取picture和source标签中的图片
+  const pictureElements = document.querySelectorAll('picture');
+  console.log('找到', pictureElements.length, '个picture元素');
+  for (const picture of pictureElements) {
+    const sourceElements = picture.querySelectorAll('source');
+    for (const source of sourceElements) {
+      const srcset = source.getAttribute('srcset');
+      const src = source.getAttribute('src');
+      
+      if (srcset) {
+        // 处理srcset属性
+        const sources = srcset.split(',').map(item => {
+          const parts = item.trim().split(' ');
+          return parts[0];
+        });
+        
+        sources.forEach(sourceUrl => {
+          if (sourceUrl && !seenUrls.has(sourceUrl)) {
+            seenUrls.add(sourceUrl);
+            // 处理相对路径
+            let fullUrl = sourceUrl;
+            if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+              try {
+                fullUrl = new URL(fullUrl, window.location.href).href;
+              } catch (error) {
+                console.warn('无法解析URL:', fullUrl, error);
+                return;
+              }
+            }
+            
+            const type = getImageType(fullUrl);
+            images.push({
+              src: fullUrl,
+              alt: '',
+              width: 0,
+              height: 0,
+              type: type,
+              elementType: 'source'
+            });
+          }
+        });
+      }
+      
+      if (src && !seenUrls.has(src)) {
+        seenUrls.add(src);
+        // 处理相对路径
+        let fullUrl = src;
+        if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+          try {
+            fullUrl = new URL(fullUrl, window.location.href).href;
+          } catch (error) {
+            console.warn('无法解析URL:', fullUrl, error);
+            return;
+          }
+        }
+        
+        const type = getImageType(fullUrl);
+        images.push({
+          src: fullUrl,
+          alt: '',
+          width: 0,
+          height: 0,
+          type: type,
+          elementType: 'source'
+        });
+      }
+    }
+  }
+
+  // 提取video标签中的图片（海报图等）
+  const videoElements = document.querySelectorAll('video');
+  console.log('找到', videoElements.length, '个video元素');
+  for (const video of videoElements) {
+    const poster = video.getAttribute('poster');
+    if (poster && !seenUrls.has(poster)) {
+      seenUrls.add(poster);
+      // 处理相对路径
+      let fullUrl = poster;
+      if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+        try {
+          fullUrl = new URL(fullUrl, window.location.href).href;
+        } catch (error) {
+          console.warn('无法解析URL:', fullUrl, error);
+          return;
+        }
+      }
+      
+      const type = getImageType(fullUrl);
+      images.push({
+        src: fullUrl,
+        alt: '',
+        width: 0,
+        height: 0,
+        type: type,
+        elementType: 'video-poster'
+      });
+    }
+  }
+
+  // 提取object和embed标签中的图片
+  const objectElements = document.querySelectorAll('object, embed');
+  console.log('找到', objectElements.length, '个object/embed元素');
+  for (const element of objectElements) {
+    const data = element.getAttribute('data');
+    const src = element.getAttribute('src');
+    const type = element.getAttribute('type');
+    
+    const url = data || src;
+    if (url && !seenUrls.has(url)) {
+      // 检查是否可能包含图片
+      const elementType = type || '';
+      if (elementType.includes('image/') || 
+          url.includes('.jpg') || url.includes('.jpeg') || 
+          url.includes('.png') || url.includes('.gif') || 
+          url.includes('.webp') || url.includes('.svg')) {
+        
+        seenUrls.add(url);
+        // 处理相对路径
+        let fullUrl = url;
+        if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+          try {
+            fullUrl = new URL(fullUrl, window.location.href).href;
+          } catch (error) {
+            console.warn('无法解析URL:', fullUrl, error);
+            return;
+          }
+        }
+        
+        const imageType = getImageType(fullUrl);
+        images.push({
+          src: fullUrl,
+          alt: '',
+          width: 0,
+          height: 0,
+          type: imageType,
+          elementType: element.tagName.toLowerCase()
+        });
+      }
+    }
+  }
+
+  // 提取preload链接中的图片
+  const linkElements = document.querySelectorAll('link[rel="preload"][as="image"]');
+  console.log('找到', linkElements.length, '个preload图片链接');
+  for (const link of linkElements) {
+    const href = link.getAttribute('href');
+    if (href && !seenUrls.has(href)) {
+      seenUrls.add(href);
+      // 处理相对路径
+      let fullUrl = href;
+      if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+        try {
+          fullUrl = new URL(fullUrl, window.location.href).href;
+        } catch (error) {
+          console.warn('无法解析URL:', fullUrl, error);
+          return;
+        }
+      }
+      
+      const type = getImageType(fullUrl);
+      images.push({
+        src: fullUrl,
+        alt: '',
+        width: 0,
+        height: 0,
+        type: type,
+        elementType: 'preload'
+      });
+    }
+  }
+
+  // 提取svg内部的图片
+  const svgElements = document.querySelectorAll('svg');
+  console.log('找到', svgElements.length, '个svg元素');
+  for (const svg of svgElements) {
+    const imageElements = svg.querySelectorAll('image');
+    for (const image of imageElements) {
+      const href = image.getAttribute('href') || image.getAttribute('xlink:href');
+      if (href && !seenUrls.has(href)) {
+        seenUrls.add(href);
+        // 处理相对路径
+        let fullUrl = href;
+        if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+          try {
+            fullUrl = new URL(fullUrl, window.location.href).href;
+          } catch (error) {
+            console.warn('无法解析URL:', fullUrl, error);
+            return;
+          }
+        }
+        
+        const type = getImageType(fullUrl);
+        images.push({
+          src: fullUrl,
+          alt: '',
+          width: 0,
+          height: 0,
+          type: type,
+          elementType: 'svg-image'
+        });
+      }
     }
   }
 
@@ -524,13 +852,29 @@ function extractImages() {
                   
                   // 对于可能的图片，尝试通过fetch获取并检测magic number
                   if (type === 'unknown' || ['jpg', 'png', 'gif', 'webp', 'bmp', 'avif', 'tiff', 'ico'].includes(type)) {
+                    // 创建局部变量保存当前url，避免闭包陷阱
+                    const currentUrl = url;
                     // 注意：这里不等待异步操作完成，避免阻塞提取过程
-                    getImageTypeByFetch(url).then(detectedType => {
+                    getImageTypeByFetch(currentUrl).then(detectedType => {
                       if (detectedType !== 'unknown') {
                         // 更新已提取图片的类型
-                        const existingImage = images.find(img => img.src === url);
+                        const existingImage = images.find(img => img.src === currentUrl);
                         if (existingImage) {
                           existingImage.type = detectedType;
+                          // 更新localStorage中的图片类型
+                          try {
+                            const storedImages = localStorage.getItem('pageImages');
+                            if (storedImages) {
+                              const storedImagesArray = JSON.parse(storedImages);
+                              const storedImage = storedImagesArray.find(img => img.src === currentUrl);
+                              if (storedImage) {
+                                storedImage.type = detectedType;
+                                localStorage.setItem('pageImages', JSON.stringify(storedImagesArray));
+                              }
+                            }
+                          } catch (error) {
+                            console.warn('更新localStorage中的图片类型失败:', error);
+                          }
                         }
                       }
                     });
@@ -556,8 +900,266 @@ function extractImages() {
     }
   }
 
-  console.log('提取到', images.length, '张图片');
-  return images;
+  // 对类型为unknown的图片进行同步类型检测和尺寸获取
+  images.forEach((image, index) => {
+    if (image.type === 'unknown') {
+      // 尝试通过URL特征重新检测
+      const detectedType = getImageType(image.src);
+      if (detectedType !== 'unknown') {
+        image.type = detectedType;
+      }
+      
+      // 尝试通过图片元素特征检测
+      if (image.type === 'unknown' && image.elementType === 'img') {
+        // 查找对应的DOM元素
+        const imgElements = document.querySelectorAll('img');
+        const imgElement = Array.from(imgElements).find(img => img.src === image.src);
+        if (imgElement) {
+          // 尝试从元素属性中获取线索
+          const className = imgElement.className || '';
+          const alt = imgElement.alt || '';
+          const title = imgElement.title || '';
+          
+          const combinedText = (className + ' ' + alt + ' ' + title).toLowerCase();
+          if (combinedText.includes('png')) {
+            image.type = 'png';
+          } else if (combinedText.includes('jpg') || combinedText.includes('jpeg')) {
+            image.type = 'jpg';
+          } else if (combinedText.includes('gif')) {
+            image.type = 'gif';
+          } else if (combinedText.includes('webp')) {
+            image.type = 'webp';
+          } else if (combinedText.includes('svg')) {
+            image.type = 'svg';
+          } else if (combinedText.includes('bmp')) {
+            image.type = 'bmp';
+          } else if (combinedText.includes('avif')) {
+            image.type = 'avif';
+          }
+        }
+      }
+    }
+    
+    // 尝试获取更多图片的尺寸信息
+    if (image.width === 0 && image.height === 0) {
+      // 对于img类型的图片，尝试从DOM元素获取尺寸
+      if (image.elementType === 'img' || image.elementType === 'img-lazy') {
+        const imgElements = document.querySelectorAll('img');
+        const imgElement = Array.from(imgElements).find(img => {
+          // 匹配src或data-src
+          return img.src === image.src || 
+                 img.getAttribute('data-src') === image.src || 
+                 img.getAttribute('data-original') === image.src;
+        });
+        if (imgElement) {
+          // 尝试获取原始尺寸
+          if (imgElement.naturalWidth && imgElement.naturalHeight) {
+            image.width = imgElement.naturalWidth;
+            image.height = imgElement.naturalHeight;
+          } 
+          // 尝试获取当前显示尺寸
+          else if (imgElement.width && imgElement.height) {
+            image.width = imgElement.width;
+            image.height = imgElement.height;
+          }
+          // 尝试从style或属性中获取尺寸
+          else {
+            // 从style属性中获取
+            const styleWidth = imgElement.style.width;
+            const styleHeight = imgElement.style.height;
+            if (styleWidth) {
+              const widthMatch = styleWidth.match(/(\d+)px/);
+              if (widthMatch) image.width = parseInt(widthMatch[1]);
+            }
+            if (styleHeight) {
+              const heightMatch = styleHeight.match(/(\d+)px/);
+              if (heightMatch) image.height = parseInt(heightMatch[1]);
+            }
+            // 从width/height属性中获取
+            if (!image.width && imgElement.getAttribute('width')) {
+              image.width = parseInt(imgElement.getAttribute('width')) || 0;
+            }
+            if (!image.height && imgElement.getAttribute('height')) {
+              image.height = parseInt(imgElement.getAttribute('height')) || 0;
+            }
+            // 从data属性中获取尺寸
+            if (!image.width && imgElement.getAttribute('data-width')) {
+              image.width = parseInt(imgElement.getAttribute('data-width')) || 0;
+            }
+            if (!image.height && imgElement.getAttribute('data-height')) {
+              image.height = parseInt(imgElement.getAttribute('data-height')) || 0;
+            }
+          }
+        }
+      }
+      // 对于SVG类型的图片，尝试解析尺寸
+      if (image.type === 'svg') {
+        // 尝试解析SVG尺寸
+        if (image.src.startsWith('data:image/svg+xml')) {
+          try {
+            const encodedSvg = image.src.split(',')[1];
+            if (encodedSvg) {
+              const svgContent = decodeURIComponent(encodedSvg);
+              const dimensions = parseSvgDimensions(svgContent);
+              if (dimensions.width > 0 && dimensions.height > 0) {
+                image.width = dimensions.width;
+                image.height = dimensions.height;
+              }
+            }
+          } catch (error) {
+            console.warn('解析SVG尺寸失败:', error);
+          }
+        } else {
+          // 对于普通URL形式的SVG，尝试从DOM元素获取尺寸
+          const imgElements = document.querySelectorAll('img');
+          const imgElement = Array.from(imgElements).find(img => img.src === image.src);
+          if (imgElement) {
+            // 尝试获取原始尺寸
+            if (imgElement.naturalWidth && imgElement.naturalHeight) {
+              image.width = imgElement.naturalWidth;
+              image.height = imgElement.naturalHeight;
+            } 
+            // 尝试获取当前显示尺寸
+            else if (imgElement.width && imgElement.height) {
+              image.width = imgElement.width;
+              image.height = imgElement.height;
+            }
+          }
+          
+          // 尝试从SVG元素本身获取尺寸
+          if (image.elementType === 'svg-image') {
+            const svgElements = document.querySelectorAll('svg');
+            for (const svg of svgElements) {
+              const imageElements = svg.querySelectorAll('image');
+              for (const img of imageElements) {
+                const href = img.getAttribute('href') || img.getAttribute('xlink:href');
+                if (href === image.src) {
+                  // 尝试从image元素获取尺寸
+                  const imgWidth = img.getAttribute('width');
+                  const imgHeight = img.getAttribute('height');
+                  if (imgWidth && imgHeight) {
+                    const widthNum = parseSvgLength(imgWidth);
+                    const heightNum = parseSvgLength(imgHeight);
+                    if (widthNum > 0 && heightNum > 0) {
+                      image.width = widthNum;
+                      image.height = heightNum;
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+          }
+          
+          // 尝试通过fetch获取SVG内容并解析尺寸
+          if (image.width === 0 && image.height === 0) {
+            try {
+              // 使用fetch获取SVG内容
+              fetch(image.src, {
+                mode: 'cors',
+                cache: 'no-cache'
+              }).then(response => {
+                if (response.ok) {
+                  return response.text();
+                }
+                throw new Error('Network response was not ok');
+              }).then(svgContent => {
+                // 解析SVG尺寸
+                const dimensions = parseSvgDimensions(svgContent);
+                if (dimensions.width > 0 && dimensions.height > 0) {
+                  // 更新图片尺寸
+                  image.width = dimensions.width;
+                  image.height = dimensions.height;
+                  
+                  // 更新localStorage中的图片尺寸
+                  try {
+                    const storedImages = localStorage.getItem('pageImages');
+                    if (storedImages) {
+                      const storedImagesArray = JSON.parse(storedImages);
+                      const storedImage = storedImagesArray.find(img => img.src === image.src);
+                      if (storedImage) {
+                        storedImage.width = dimensions.width;
+                        storedImage.height = dimensions.height;
+                        localStorage.setItem('pageImages', JSON.stringify(storedImagesArray));
+                      }
+                    }
+                  } catch (error) {
+                    console.warn('更新localStorage中的图片尺寸失败:', error);
+                  }
+                }
+              }).catch(error => {
+                console.warn('通过fetch获取SVG尺寸失败:', image.src, error);
+              });
+            } catch (error) {
+              console.warn('处理SVG fetch请求失败:', error);
+            }
+          }
+        }
+      }
+      // 对于canvas类型的图片，直接使用canvas尺寸
+      else if (image.elementType === 'canvas') {
+        const canvasElements = document.querySelectorAll('canvas');
+        for (const canvas of canvasElements) {
+          try {
+            const dataUrl = canvas.toDataURL('image/png');
+            if (dataUrl === image.src) {
+              image.width = canvas.width;
+              image.height = canvas.height;
+              break;
+            }
+          } catch (error) {
+            console.warn('提取canvas尺寸失败:', error);
+          }
+        }
+      }
+    }
+  });
+  
+  // 性能优化：图片尺寸过滤和智能去重
+  const filteredImages = [];
+  const uniqueUrls = new Set();
+  const minWidth = 10; // 最小宽度阈值
+  const minHeight = 10; // 最小高度阈值
+  
+  images.forEach(image => {
+    // 过滤过小的图片
+    if ((image.width >= minWidth || image.height >= minHeight) || 
+        (image.width === 0 && image.height === 0)) { // 未知尺寸的图片保留
+      
+      // 智能URL标准化和去重
+      let normalizedUrl = image.src;
+      
+      // 标准化URL：移除UTM参数和跟踪参数
+      if (normalizedUrl.includes('?')) {
+        const urlParts = normalizedUrl.split('?');
+        const baseUrl = urlParts[0];
+        const params = urlParts[1];
+        const paramPairs = params.split('&').filter(param => {
+          const key = param.split('=')[0].toLowerCase();
+          // 移除常见的跟踪参数
+          return !['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 
+                  'gclid', 'fbclid', 'msclkid', 'mc_eid', 'cid', 'pid'].includes(key);
+        });
+        
+        if (paramPairs.length > 0) {
+          normalizedUrl = baseUrl + '?' + paramPairs.join('&');
+        } else {
+          normalizedUrl = baseUrl;
+        }
+      }
+      
+      // 去重
+      if (!uniqueUrls.has(normalizedUrl)) {
+        uniqueUrls.add(normalizedUrl);
+        // 更新图片的标准化URL
+        image.src = normalizedUrl;
+        filteredImages.push(image);
+      }
+    }
+  });
+  
+  console.log('提取到', filteredImages.length, '张图片（已过滤和去重）');
+  return filteredImages;
 }
 
 /**
@@ -621,6 +1223,34 @@ function getImageType(url) {
     }
   }
   
+  // 增强：检查URL参数中的图片格式线索
+  const urlParams = url.split('?')[1];
+  if (urlParams) {
+    const paramsLower = urlParams.toLowerCase();
+    if (paramsLower.includes('format=png') || paramsLower.includes('type=png')) {
+      return 'png';
+    }
+    if (paramsLower.includes('format=jpg') || paramsLower.includes('type=jpg') || 
+        paramsLower.includes('format=jpeg') || paramsLower.includes('type=jpeg')) {
+      return 'jpg';
+    }
+    if (paramsLower.includes('format=webp') || paramsLower.includes('type=webp')) {
+      return 'webp';
+    }
+    if (paramsLower.includes('format=gif') || paramsLower.includes('type=gif')) {
+      return 'gif';
+    }
+  }
+  
+  // 增强：检查URL路径中的常见图片服务器路径
+  if (urlLower.includes('/png/') || urlLower.includes('/images/png/') || urlLower.includes('/img/png/')) {
+    return 'png';
+  }
+  if (urlLower.includes('/jpg/') || urlLower.includes('/images/jpg/') || urlLower.includes('/img/jpg/') ||
+      urlLower.includes('/jpeg/') || urlLower.includes('/images/jpeg/') || urlLower.includes('/img/jpeg/')) {
+    return 'jpg';
+  }
+  
   // 最后尝试：检查URL中是否包含图片格式的MIME类型或其他线索
   if (urlLower.includes('image/jpeg') || urlLower.includes('image/jpg')) {
     return 'jpg';
@@ -636,6 +1266,18 @@ function getImageType(url) {
   }
   if (urlLower.includes('image/gif')) {
     return 'gif';
+  }
+  if (urlLower.includes('image/bmp')) {
+    return 'bmp';
+  }
+  if (urlLower.includes('image/avif')) {
+    return 'avif';
+  }
+  if (urlLower.includes('image/tiff')) {
+    return 'tiff';
+  }
+  if (urlLower.includes('image/ico')) {
+    return 'ico';
   }
   
   return 'unknown';

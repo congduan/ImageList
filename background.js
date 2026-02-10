@@ -70,6 +70,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else {
       sendResponse({ images: [] });
     }
+  } else if (request.action === 'getCachedImage') {
+    // 从sidebar接收请求，向content script发送消息获取缓存图片
+    const tabId = request.tabId;
+    const url = request.url;
+    if (tabId && url) {
+      // 直接尝试注入content script，确保它存在
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content.js']
+      }).then(() => {
+        // 注入后发送消息
+        chrome.tabs.sendMessage(tabId, { 
+          action: 'getCachedImage', 
+          url: url 
+        }, (response) => {
+          // 忽略错误，直接检查响应
+          if (response) {
+            sendResponse(response);
+          } else {
+            sendResponse({ success: false, error: '未收到响应' });
+          }
+        });
+      }).catch((error) => {
+        console.error('注入content script失败:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+      return true; // 保持消息通道开放
+    } else {
+      sendResponse({ success: false, error: '缺少必要参数' });
+    }
   } else if (request.action === 'downloadImage') {
     // 处理图片下载请求
     downloadImage(request.url, request.filename).then(() => {

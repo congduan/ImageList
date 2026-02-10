@@ -79,6 +79,23 @@ function renderImages(images) {
   // 隐藏空状态
   emptyState.classList.add('hidden');
   
+  // 添加图片数量信息
+  const imagesContainer = imagesList.parentElement;
+  
+  // 移除现有的数量信息（如果存在）
+  const existingCountInfo = imagesContainer.querySelector('.images-count');
+  if (existingCountInfo) {
+    existingCountInfo.remove();
+  }
+  
+  // 创建数量信息元素
+  const countInfo = document.createElement('div');
+  countInfo.className = 'images-count';
+  countInfo.textContent = `找到 ${images.length} 张图片`;
+  
+  // 插入到图片列表之前
+  imagesContainer.insertBefore(countInfo, imagesList);
+  
   // 渲染图片项
   images.forEach((image, index) => {
     const imageItem = document.createElement('div');
@@ -93,34 +110,74 @@ function renderImages(images) {
     imgPreview.title = image.alt || `Image ${index + 1}`;
     
     // 添加图片加载错误处理
+    let errorCount = 0;
+    const maxErrors = 2; // 最大错误次数，防止死循环
+    
     imgPreview.onerror = function() {
-      console.warn('图片预览失败，尝试使用缓存数据:', image.src);
+      errorCount++;
       
-      // 尝试从localStorage获取缓存数据
-      try {
-        const storedImages = localStorage.getItem('pageImages');
-        if (storedImages) {
-          const images = JSON.parse(storedImages);
-          const cachedImage = images.find(img => img.src === image.src);
-          
-          if (cachedImage && cachedImage.src) {
-            imgPreview.src = cachedImage.src;
-            return;
-          }
-        }
-      } catch (error) {
-        console.error('从localStorage获取缓存失败:', error);
+      if (errorCount > maxErrors) {
+        console.warn('图片预览多次失败，显示占位符:', image.src);
+        // 显示默认占位符
+        imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+        return;
       }
       
-      // 显示默认占位符
-      imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+      console.warn('图片预览失败，尝试使用缓存数据:', image.src);
+      
+      // 尝试通过background script获取缓存的图片数据
+      try {
+        // 获取当前标签页ID
+        let targetTabId;
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabIdParam = urlParams.get('tabId');
+        
+        if (tabIdParam) {
+          targetTabId = parseInt(tabIdParam);
+        } else {
+          // 如果没有tabId参数，尝试获取当前活动标签页
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+              targetTabId = tabs[0].id;
+              sendCachedImageRequest(targetTabId);
+            } else {
+              // 显示默认占位符
+              imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+            }
+          });
+          return;
+        }
+        
+        function sendCachedImageRequest(tabId) {
+          chrome.runtime.sendMessage({ 
+            action: 'getCachedImage', 
+            tabId: tabId,
+            url: image.src 
+          }, (response) => {
+            if (response && response.success && response.dataUrl && response.dataUrl !== image.src) {
+              // 使用缓存的data URL，确保与原始URL不同
+              imgPreview.src = response.dataUrl;
+            } else {
+              // 显示默认占位符
+              imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+            }
+          });
+        }
+        
+        sendCachedImageRequest(targetTabId);
+      } catch (error) {
+        console.error('获取缓存图片失败:', error);
+        // 显示默认占位符
+        imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+      }
     };
     
     // 创建图片信息
     const imgInfo = document.createElement('div');
     imgInfo.className = 'image-info';
-    const sizeInfo = image.width && image.height ? `${image.width}x${image.height}` : '未知尺寸';
-    imgInfo.innerHTML = `${image.type.toUpperCase()}<br>${sizeInfo}`;
+    const sizeInfo = image.width > 0 && image.height > 0 ? `${image.width}x${image.height}` : '未知尺寸';
+    const typeDisplay = image.type && image.type !== 'unknown' ? image.type.toUpperCase() : '图片';
+    imgInfo.innerHTML = `${typeDisplay}<br>${sizeInfo}`;
     
     // 创建下载按钮
     const downloadBtn = document.createElement('button');
