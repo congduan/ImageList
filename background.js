@@ -48,28 +48,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // 从sidebar接收请求，向content script发送消息提取图片
     const tabId = request.tabId;
     if (tabId) {
-      chrome.tabs.sendMessage(tabId, { action: 'extractImages' }, (response) => {
-        if (response && response.images) {
-          sendResponse({ images: response.images });
-        } else {
-          // 如果content script没有响应，尝试注入并重新发送
-          chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            files: ['content.js']
-          }).then(() => {
-            // 注入后再次尝试发送消息
-            chrome.tabs.sendMessage(tabId, { action: 'extractImages' }, (response) => {
-              if (response && response.images) {
-                sendResponse({ images: response.images });
-              } else {
-                sendResponse({ images: [] });
-              }
-            });
-          }).catch((error) => {
-            console.error('注入content script失败:', error);
+      // 直接尝试注入content script，确保它存在
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content.js']
+      }).then(() => {
+        // 注入后发送消息
+        chrome.tabs.sendMessage(tabId, { action: 'extractImages' }, (response) => {
+          // 忽略错误，直接检查响应
+          if (response && response.images) {
+            sendResponse({ images: response.images });
+          } else {
             sendResponse({ images: [] });
-          });
-        }
+          }
+        });
+      }).catch((error) => {
+        console.error('注入content script失败:', error);
+        sendResponse({ images: [] });
       });
       return true; // 保持消息通道开放
     } else {
