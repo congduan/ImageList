@@ -92,6 +92,30 @@ function renderImages(images) {
     imgPreview.alt = image.alt || `Image ${index + 1}`;
     imgPreview.title = image.alt || `Image ${index + 1}`;
     
+    // 添加图片加载错误处理
+    imgPreview.onerror = function() {
+      console.warn('图片预览失败，尝试使用缓存数据:', image.src);
+      
+      // 尝试从localStorage获取缓存数据
+      try {
+        const storedImages = localStorage.getItem('pageImages');
+        if (storedImages) {
+          const images = JSON.parse(storedImages);
+          const cachedImage = images.find(img => img.src === image.src);
+          
+          if (cachedImage && cachedImage.src) {
+            imgPreview.src = cachedImage.src;
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('从localStorage获取缓存失败:', error);
+      }
+      
+      // 显示默认占位符
+      imgPreview.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23f0f0f0"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%23999" text-anchor="middle" dominant-baseline="middle"%3E无法预览%3C/text%3E%3C/svg%3E';
+    };
+    
     // 创建图片信息
     const imgInfo = document.createElement('div');
     imgInfo.className = 'image-info';

@@ -121,12 +121,98 @@ async function downloadImage(url, filename) {
         saveAs: true
       });
     } else {
-      // 下载普通URL图片
-      await chrome.downloads.download({
-        url: url,
-        filename: filename || getFilenameFromUrl(url),
-        saveAs: true
-      });
+      try {
+        // 尝试从网络下载普通URL图片
+        await chrome.downloads.download({
+          url: url,
+          filename: filename || getFilenameFromUrl(url),
+          saveAs: true
+        });
+      } catch (error) {
+        console.error('网络下载失败，尝试从缓存获取:', error);
+        // 尝试从content script获取缓存数据
+        try {
+          // 获取当前活动标签页
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tab) {
+            // 向content script发送消息，请求获取缓存数据
+            const cacheData = await new Promise((resolve, reject) => {
+              chrome.tabs.sendMessage(tab.id, { 
+                action: 'getCachedImage', 
+                url: url 
+              }, (response) => {
+                if (response && response.success && response.dataUrl) {
+                  resolve(response.dataUrl);
+                } else {
+                  reject(new Error('缓存中未找到图片'));
+                }
+              });
+            });
+            
+            // 使用缓存数据下载
+            let extension = 'png'; // 默认扩展名
+            
+            // 从缓存数据中提取类型信息
+            if (cacheData.startsWith('data:image/')) {
+              // 从data URL中提取类型
+              const typeMatch = cacheData.match(/data:image\/(.*?);/);
+              if (typeMatch) {
+                const mimeType = typeMatch[1];
+                // 处理常见的MIME类型
+                if (mimeType === 'jpeg') {
+                  extension = 'jpg';
+                } else if (['png', 'gif', 'webp', 'bmp', 'svg+xml', 'avif', 'tiff', 'ico'].includes(mimeType)) {
+                  extension = mimeType.replace('+xml', '');
+                }
+              }
+            } else {
+              // 尝试从原始URL中提取扩展名
+              const urlExtension = getExtensionFromUrl(url);
+              if (urlExtension) {
+                // 验证是否为有效的图片扩展名
+                const validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'tiff', 'ico'];
+                if (validExtensions.includes(urlExtension.toLowerCase())) {
+                  extension = urlExtension;
+                }
+              }
+            }
+            
+            await chrome.downloads.download({
+              url: cacheData,
+              filename: filename || `image_${Date.now()}.${extension}`,
+              saveAs: true
+            });
+            
+            console.log('从缓存成功下载图片');
+            return; // 成功下载，退出函数
+          }
+        } catch (cacheError) {
+          console.error('缓存获取也失败:', cacheError);
+          // 尝试其他缓存策略
+          try {
+            // 对于常见的图片格式，尝试使用fetch获取
+            const response = await fetch(url, {
+              mode: 'no-cors',
+              cache: 'force-cache'
+            });
+            
+            if (response.ok || response.type === 'opaque') {
+              // 对于no-cors请求，我们无法获取响应体，但可以尝试再次下载
+              await chrome.downloads.download({
+                url: url,
+                filename: filename || getFilenameFromUrl(url),
+                saveAs: true
+              });
+              return; // 成功下载，退出函数
+            }
+          } catch (fetchError) {
+            console.error('fetch缓存获取也失败:', fetchError);
+          }
+        }
+        
+        // 所有尝试都失败，抛出原始错误
+        throw error;
+      }
     }
   } catch (error) {
     console.error('下载图片失败:', error);
