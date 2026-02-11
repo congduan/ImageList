@@ -19,7 +19,75 @@ function parseSvgDimensions(svgContent) {
     // 清理SVG内容中的反引号和HTML注释
     cleanedContent = cleanedContent.replace(/`/g, '').replace(/<!--[\s\S]*?-->/g, '');
 
-    // 创建临时DOM元素解析SVG
+    // 使用fast-xml-parser库解析SVG
+    if (typeof fxp !== 'undefined' && fxp.XMLParser) {
+      const parser = new fxp.XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '',
+        parseAttributeValue: true
+      });
+      
+      try {
+        const svgObj = parser.parse(cleanedContent);
+        const svgElement = svgObj.svg;
+        
+        if (svgElement) {
+          let width = null;
+          let height = null;
+
+          // 方法1：直接从width和height属性获取尺寸
+          if (svgElement.width) {
+            const widthMatch = svgElement.width.match(/([\d.]+)/);
+            if (widthMatch) width = widthMatch[1];
+          }
+          if (svgElement.height) {
+            const heightMatch = svgElement.height.match(/([\d.]+)/);
+            if (heightMatch) height = heightMatch[1];
+          }
+
+          // 方法2：从viewBox属性推断尺寸
+          if (!width || !height) {
+            const viewBox = svgElement.viewBox;
+            if (viewBox) {
+              const viewBoxParts = viewBox.split(/\s+/).filter(part => part);
+              if (viewBoxParts.length >= 4) {
+                const vbWidth = parseFloat(viewBoxParts[2]);
+                const vbHeight = parseFloat(viewBoxParts[3]);
+                if (!width) width = vbWidth;
+                if (!height) height = vbHeight;
+              }
+            }
+          }
+
+          // 方法3：从style属性获取尺寸
+          if (!width || !height) {
+            const style = svgElement.style;
+            if (style) {
+              const widthMatch = style.match(/width:\s*([\d.]+)\s*(px|em|rem|%|pt|pc|in|cm|mm|ex|ch|vw|vh|vmin|vmax)?/);
+              const heightMatch = style.match(/height:\s*([\d.]+)\s*(px|em|rem|%|pt|pc|in|cm|mm|ex|ch|vw|vh|vmin|vmax)?/);
+              if (widthMatch && !width) width = widthMatch[1];
+              if (heightMatch && !height) height = heightMatch[1];
+            }
+          }
+
+          // 转换为数字并验证
+          const widthNum = width ? parseFloat(width) : 0;
+          const heightNum = height ? parseFloat(height) : 0;
+
+          if (widthNum > 0 && heightNum > 0) {
+            // 确保尺寸合理（不超过50000x50000）
+            const finalWidth = Math.min(Math.max(widthNum, 1), 50000);
+            const finalHeight = Math.min(Math.max(heightNum, 1), 50000);
+            return { width: Math.round(finalWidth), height: Math.round(finalHeight) };
+          }
+        }
+      } catch (error) {
+        console.warn('使用fast-xml-parser解析SVG失败，尝试使用DOMParser:', error);
+        // 解析失败，回退到DOMParser方法
+      }
+    }
+
+    // 回退方案：使用DOMParser解析SVG
     const parser = new DOMParser();
     const svgDoc = parser.parseFromString(cleanedContent, 'image/svg+xml');
     const svgElement = svgDoc.querySelector('svg');
