@@ -7,90 +7,205 @@
  */
 function parseSvgDimensions(svgContent) {
   try {
+    console.log('开始解析SVG尺寸，原始内容前200字符:', svgContent.substring(0, 200) + '...');
+    
+    // 诊断fast-xml-parser库加载问题
+    console.log('=== 诊断fast-xml-parser库加载 ===');
+    try {
+      console.log('typeof fxp:', typeof fxp);
+      console.log('fxp:', fxp);
+    } catch (e) {
+      console.log('fxp变量不存在:', e.message);
+    }
+    console.log('typeof window:', typeof window);
+    if (typeof window !== 'undefined') {
+      try {
+        console.log('typeof window.fxp:', typeof window.fxp);
+        console.log('window.fxp:', window.fxp);
+      } catch (e) {
+        console.log('window.fxp变量不存在:', e.message);
+      }
+    }
+    
+    // 尝试直接加载fast-xml-parser库
+    console.log('=== 尝试直接加载fast-xml-parser库 ===');
+    try {
+      // 检查是否可以动态创建script标签加载库
+      console.log('可以动态创建script标签:', typeof document !== 'undefined');
+    } catch (e) {
+      console.log('检查动态加载失败:', e.message);
+    }
+    console.log('=== 诊断结束 ===');
+    
     // 清理SVG内容，处理可能的编码问题
     let cleanedContent = svgContent;
     try {
       // 尝试解码可能的URL编码
       cleanedContent = decodeURIComponent(svgContent);
+      console.log('解码成功，清理后的内容前200字符:', cleanedContent.substring(0, 200) + '...');
     } catch (e) {
-      // 解码失败，使用原始内容
+      console.log('解码失败，使用原始内容:', e.message);
     }
 
     // 清理SVG内容中的反引号和HTML注释
     cleanedContent = cleanedContent.replace(/`/g, '').replace(/<!--[\s\S]*?-->/g, '');
+    
+    console.log('最终处理后的内容前200字符:', cleanedContent.substring(0, 200) + '...');
 
     // 使用fast-xml-parser库解析SVG
-    if (typeof fxp !== 'undefined' && fxp.XMLParser) {
-      const parser = new fxp.XMLParser({
+    let fxpLib;
+    try {
+      fxpLib = typeof fxp !== 'undefined' ? fxp : (typeof window !== 'undefined' ? window.fxp : undefined);
+    } catch (e) {
+      console.log('获取fxpLib失败:', e.message);
+      fxpLib = undefined;
+    }
+    console.log('fxpLib:', fxpLib);
+    console.log('fxpLib.XMLParser:', fxpLib ? fxpLib.XMLParser : 'undefined');
+    if (typeof fxpLib !== 'undefined' && fxpLib.XMLParser) {
+      console.log('使用fast-xml-parser库解析SVG');
+      // 调整fast-xml-parser配置，确保正确解析SVG
+      const parser = new fxpLib.XMLParser({
         ignoreAttributes: false,
         attributeNamePrefix: '',
-        parseAttributeValue: true
+        parseAttributeValue: true,
+        trimValues: false,
+        parseTagValue: true,
+        stopNodes: ['*.svg']
       });
 
       try {
+        console.log('解析前的cleanedContent:', cleanedContent);
         const svgObj = parser.parse(cleanedContent);
-        const svgElement = svgObj.svg;
+        console.log('解析结果:', JSON.stringify(svgObj, null, 2));
+        console.log('解析结果类型:', typeof svgObj);
+        console.log('解析结果构造函数:', svgObj.constructor.name);
+        
+        // 尝试直接访问根元素
+        let svgElement;
+        if (svgObj.svg) {
+          svgElement = svgObj.svg;
+          console.log('从svgObj.svg获取SVG元素');
+        } else if (svgObj) {
+          // 尝试直接使用解析结果作为SVG元素
+          svgElement = svgObj;
+          console.log('直接使用解析结果作为SVG元素');
+        }
+        
+        console.log('SVG元素:', JSON.stringify(svgElement, null, 2));
 
         if (svgElement) {
+          console.log('找到SVG元素，开始提取尺寸');
           let width = null;
           let height = null;
 
           // 方法1：直接从width和height属性获取尺寸
+          console.log('SVG元素属性:', {
+            width: svgElement.width,
+            height: svgElement.height,
+            viewBox: svgElement.viewBox
+          });
+          
           if (svgElement.width) {
             const widthMatch = svgElement.width.match(/([\d.]+)/);
-            if (widthMatch) width = widthMatch[1];
+            if (widthMatch) {
+              width = widthMatch[1];
+              console.log('从width属性提取尺寸:', width);
+            } else {
+              console.log('无法从width属性提取尺寸:', svgElement.width);
+            }
+          } else {
+            console.log('SVG元素没有width属性');
           }
+          
           if (svgElement.height) {
             const heightMatch = svgElement.height.match(/([\d.]+)/);
-            if (heightMatch) height = heightMatch[1];
+            if (heightMatch) {
+              height = heightMatch[1];
+              console.log('从height属性提取尺寸:', height);
+            } else {
+              console.log('无法从height属性提取尺寸:', svgElement.height);
+            }
+          } else {
+            console.log('SVG元素没有height属性');
           }
 
           // 方法2：从viewBox属性推断尺寸
           if (!width || !height) {
+            console.log('从width/height属性提取失败，尝试从viewBox提取');
             const viewBox = svgElement.viewBox;
             if (viewBox) {
+              console.log('找到viewBox属性:', viewBox);
               const viewBoxParts = viewBox.split(/\s+/).filter(part => part);
+              console.log('viewBox拆分结果:', viewBoxParts);
               if (viewBoxParts.length >= 4) {
                 const vbWidth = parseFloat(viewBoxParts[2]);
                 const vbHeight = parseFloat(viewBoxParts[3]);
+                console.log('从viewBox提取的尺寸:', { vbWidth, vbHeight });
                 if (!width) width = vbWidth;
                 if (!height) height = vbHeight;
+              } else {
+                console.log('viewBox格式不正确，元素数量:', viewBoxParts.length);
               }
+            } else {
+              console.log('SVG元素没有viewBox属性');
             }
           }
 
           // 方法3：从style属性获取尺寸
           if (!width || !height) {
+            console.log('从width/height和viewBox提取失败，尝试从style提取');
             const style = svgElement.style;
             if (style) {
+              console.log('找到style属性:', style);
               const widthMatch = style.match(/width:\s*([\d.]+)\s*(px|em|rem|%|pt|pc|in|cm|mm|ex|ch|vw|vh|vmin|vmax)?/);
               const heightMatch = style.match(/height:\s*([\d.]+)\s*(px|em|rem|%|pt|pc|in|cm|mm|ex|ch|vw|vh|vmin|vmax)?/);
-              if (widthMatch && !width) width = widthMatch[1];
-              if (heightMatch && !height) height = heightMatch[1];
+              if (widthMatch && !width) {
+                width = widthMatch[1];
+                console.log('从style属性提取宽度:', width);
+              }
+              if (heightMatch && !height) {
+                height = heightMatch[1];
+                console.log('从style属性提取高度:', height);
+              }
+            } else {
+              console.log('SVG元素没有style属性');
             }
           }
 
           // 转换为数字并验证
           const widthNum = width ? parseFloat(width) : 0;
           const heightNum = height ? parseFloat(height) : 0;
+          console.log('转换为数字后的尺寸:', { widthNum, heightNum });
 
           if (widthNum > 0 && heightNum > 0) {
             // 确保尺寸合理（不超过50000x50000）
             const finalWidth = Math.min(Math.max(widthNum, 1), 50000);
             const finalHeight = Math.min(Math.max(heightNum, 1), 50000);
+            console.log('最终返回的尺寸:', { width: Math.round(finalWidth), height: Math.round(finalHeight) });
             return { width: Math.round(finalWidth), height: Math.round(finalHeight) };
+          } else {
+            console.log('提取的尺寸无效，widthNum:', widthNum, 'heightNum:', heightNum);
           }
+        } else {
+          console.log('解析结果中没有找到svg元素');
         }
       } catch (error) {
         console.warn('使用fast-xml-parser解析SVG失败，尝试使用DOMParser:', error);
         // 解析失败，回退到DOMParser方法
       }
+    } else {
+      console.log('fast-xml-parser库不可用，使用DOMParser');
     }
 
     // 回退方案：使用DOMParser解析SVG
+    console.log('使用DOMParser解析SVG');
     const parser = new DOMParser();
     const svgDoc = parser.parseFromString(cleanedContent, 'image/svg+xml');
+    console.log('DOMParser解析结果:', svgDoc.documentElement.outerHTML.substring(0, 200) + '...');
+    
     const svgElement = svgDoc.querySelector('svg');
+    console.log('找到SVG元素:', svgElement ? '是' : '否');
 
     if (svgElement) {
       let width = null;
@@ -99,86 +214,147 @@ function parseSvgDimensions(svgContent) {
       // 方法1：直接从width和height属性获取尺寸
       const widthAttr = svgElement.getAttribute('width');
       const heightAttr = svgElement.getAttribute('height');
+      console.log('DOMParser: SVG元素属性:', {
+        width: widthAttr,
+        height: heightAttr,
+        viewBox: svgElement.getAttribute('viewBox')
+      });
 
       if (widthAttr) {
         const widthMatch = widthAttr.match(/([\d.]+)/);
-        if (widthMatch) width = widthMatch[1];
+        if (widthMatch) {
+          width = widthMatch[1];
+          console.log('DOMParser: 从width属性提取尺寸:', width);
+        } else {
+          console.log('DOMParser: 无法从width属性提取尺寸:', widthAttr);
+        }
+      } else {
+        console.log('DOMParser: SVG元素没有width属性');
       }
+      
       if (heightAttr) {
         const heightMatch = heightAttr.match(/([\d.]+)/);
-        if (heightMatch) height = heightMatch[1];
+        if (heightMatch) {
+          height = heightMatch[1];
+          console.log('DOMParser: 从height属性提取尺寸:', height);
+        } else {
+          console.log('DOMParser: 无法从height属性提取尺寸:', heightAttr);
+        }
+      } else {
+        console.log('DOMParser: SVG元素没有height属性');
       }
 
       // 方法2：从viewBox属性推断尺寸
       if (!width || !height) {
+        console.log('DOMParser: 从width/height属性提取失败，尝试从viewBox提取');
         const viewBox = svgElement.getAttribute('viewBox');
         if (viewBox) {
+          console.log('DOMParser: 找到viewBox属性:', viewBox);
           const viewBoxParts = viewBox.split(/\s+/).filter(part => part);
+          console.log('DOMParser: viewBox拆分结果:', viewBoxParts);
           if (viewBoxParts.length >= 4) {
             const vbWidth = parseFloat(viewBoxParts[2]);
             const vbHeight = parseFloat(viewBoxParts[3]);
+            console.log('DOMParser: 从viewBox提取的尺寸:', { vbWidth, vbHeight });
             if (!width) width = vbWidth;
             if (!height) height = vbHeight;
+          } else {
+            console.log('DOMParser: viewBox格式不正确，元素数量:', viewBoxParts.length);
           }
+        } else {
+          console.log('DOMParser: SVG元素没有viewBox属性');
         }
       }
 
       // 方法3：从style属性获取尺寸
       if (!width || !height) {
+        console.log('DOMParser: 从width/height和viewBox提取失败，尝试从style提取');
         const style = svgElement.getAttribute('style');
         if (style) {
+          console.log('DOMParser: 找到style属性:', style);
           const widthMatch = style.match(/width:\s*([\d.]+)\s*(px|em|rem|%|pt|pc|in|cm|mm|ex|ch|vw|vh|vmin|vmax)?/);
           const heightMatch = style.match(/height:\s*([\d.]+)\s*(px|em|rem|%|pt|pc|in|cm|mm|ex|ch|vw|vh|vmin|vmax)?/);
-          if (widthMatch && !width) width = widthMatch[1];
-          if (heightMatch && !height) height = heightMatch[1];
+          if (widthMatch && !width) {
+            width = widthMatch[1];
+            console.log('DOMParser: 从style属性提取宽度:', width);
+          }
+          if (heightMatch && !height) {
+            height = heightMatch[1];
+            console.log('DOMParser: 从style属性提取高度:', height);
+          }
+        } else {
+          console.log('DOMParser: SVG元素没有style属性');
         }
       }
 
       // 方法4：从内联CSS计算
       if (!width || !height) {
+        console.log('DOMParser: 尝试从内联CSS计算尺寸');
         const computedWidth = svgElement.style.width;
         const computedHeight = svgElement.style.height;
+        console.log('DOMParser: 内联CSS尺寸:', { computedWidth, computedHeight });
+        
         if (computedWidth && !width) {
           const widthMatch = computedWidth.match(/([\d.]+)/);
-          if (widthMatch) width = widthMatch[1];
+          if (widthMatch) {
+            width = widthMatch[1];
+            console.log('DOMParser: 从内联CSS提取宽度:', width);
+          }
         }
         if (computedHeight && !height) {
           const heightMatch = computedHeight.match(/([\d.]+)/);
-          if (heightMatch) height = heightMatch[1];
+          if (heightMatch) {
+            height = heightMatch[1];
+            console.log('DOMParser: 从内联CSS提取高度:', height);
+          }
         }
       }
 
       // 方法5：检查子元素的边界框来估算尺寸
       if (!width || !height) {
+        console.log('DOMParser: 尝试从子元素边界框估算尺寸');
         try {
           const firstPath = svgElement.querySelector('path, rect, circle, ellipse, line, polygon, polyline, text');
+          console.log('DOMParser: 找到子元素:', firstPath ? firstPath.tagName : '否');
           if (firstPath) {
             const bbox = firstPath.getBBox ? firstPath.getBBox() : null;
+            console.log('DOMParser: 子元素边界框:', bbox);
             if (bbox && bbox.width > 0 && bbox.height > 0) {
               if (!width) width = Math.ceil(bbox.width + 10); // 加一些padding
               if (!height) height = Math.ceil(bbox.height + 10);
+              console.log('DOMParser: 从子元素边界框估算尺寸:', { width, height });
+            } else {
+              console.log('DOMParser: 无法获取子元素边界框或边界框无效');
             }
+          } else {
+            console.log('DOMParser: 没有找到可计算边界框的子元素');
           }
         } catch (e) {
-          // 忽略getBBox错误
+          console.log('DOMParser: 获取子元素边界框失败:', e.message);
         }
       }
 
       // 转换为数字并验证
       const widthNum = width ? parseFloat(width) : 0;
       const heightNum = height ? parseFloat(height) : 0;
+      console.log('DOMParser: 转换为数字后的尺寸:', { widthNum, heightNum });
 
       if (widthNum > 0 && heightNum > 0) {
         // 确保尺寸合理（不超过50000x50000）
         const finalWidth = Math.min(Math.max(widthNum, 1), 50000);
         const finalHeight = Math.min(Math.max(heightNum, 1), 50000);
+        console.log('DOMParser: 最终返回的尺寸:', { width: Math.round(finalWidth), height: Math.round(finalHeight) });
         return { width: Math.round(finalWidth), height: Math.round(finalHeight) };
+      } else {
+        console.log('DOMParser: 提取的尺寸无效，widthNum:', widthNum, 'heightNum:', heightNum);
       }
     }
   } catch (error) {
-    console.warn('解析SVG尺寸失败:', error);
+    console.error('解析SVG尺寸失败:', error);
+    console.error('错误堆栈:', error.stack);
   }
 
+  console.log('所有解析方法都失败，返回默认尺寸: { width: 0, height: 0 }');
   return { width: 0, height: 0 };
 }
 
@@ -211,6 +387,54 @@ function parseSvgLength(length) {
 }
 
 /**
+ * 处理SVG data URL，提取并解码内容
+ * @param {string} url SVG data URL
+ * @return {string|null} 解码后的SVG内容，失败返回null
+ */
+function processSvgDataUrl(url) {
+  console.log('处理SVG data URL:', url.substring(0, 100) + '...');
+  
+  try {
+    // 解码URL编码的内容
+    const decodedUrl = decodeURIComponent(url);
+    
+    // 提取SVG内容部分
+    const encodedSvg = decodedUrl.split(',')[1];
+    if (!encodedSvg) {
+      console.warn('无法提取SVG内容部分');
+      return null;
+    }
+    
+    let svgContent = decodeURIComponent(encodedSvg);
+    
+    // 检查是否是base64编码的SVG
+    if (decodedUrl.includes('data:image/svg+xml;base64,')) {
+      console.log('检测到base64编码的SVG data URL');
+      try {
+        // 解码base64内容
+        svgContent = atob(svgContent);
+        console.log('base64解码成功');
+      } catch (base64Error) {
+        console.warn('base64解码失败:', base64Error);
+        return null;
+      }
+    }
+    
+    // 检查解码结果是否是有效的SVG
+    if (!svgContent.includes('<svg')) {
+      console.warn('解码后的内容不是有效的SVG');
+      return null;
+    }
+    
+    console.log('SVG data URL处理成功，内容前200字符:', svgContent.substring(0, 200) + '...');
+    return svgContent;
+  } catch (error) {
+    console.warn('处理SVG data URL失败:', error);
+    return null;
+  }
+}
+
+/**
  * 协调获取图片类型和尺寸信息，避免竞态条件
  * @param {string} url 图片URL
  * @param {Object} initialImage 初始图片信息
@@ -221,7 +445,7 @@ async function getImageInfoCoordinated(url, initialImage) {
     // 并行获取类型和尺寸信息
     const [detectedType, dimensions] = await Promise.allSettled([
       getImageTypeByFetch(url),
-      initialImage.type === 'svg' ? getSvgDimensionsFromUrl(url) : Promise.resolve({ width: 0, height: 0 })
+      initialImage.type === 'svg' ? getSvgDimensionsFromUrl(url) : getImageDimensionsFromUrl(url)
     ]);
 
     const updatedImage = { ...initialImage };
@@ -253,9 +477,10 @@ async function getSvgDimensionsFromUrl(url) {
   try {
     if (url.startsWith('data:image/svg+xml')) {
       // 处理data URL形式的SVG
-      const encodedSvg = url.split(',')[1];
-      const decodedSvg = decodeURIComponent(encodedSvg);
-      return parseSvgDimensions(decodedSvg);
+      const svgContent = processSvgDataUrl(url);
+      if (svgContent) {
+        return parseSvgDimensions(svgContent);
+      }
     } else {
       // 处理普通URL形式的SVG
       const response = await fetch(url, {
@@ -274,6 +499,38 @@ async function getSvgDimensionsFromUrl(url) {
   }
 
   return { width: 0, height: 0 };
+}
+
+/**
+ * 从URL获取非SVG图片的尺寸
+ * @param {string} url 图片URL
+ * @return {Promise<Object>} 包含width和height的对象
+ */
+async function getImageDimensionsFromUrl(url) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // 允许跨域请求
+      
+      img.onload = function() {
+        console.log('图片加载成功，获取尺寸:', {
+          width: img.naturalWidth,
+          height: img.naturalHeight
+        });
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      };
+      
+      img.onerror = function(error) {
+        console.warn('图片加载失败，无法获取尺寸:', url, error);
+        resolve({ width: 0, height: 0 });
+      };
+      
+      img.src = url;
+    } catch (error) {
+      console.warn('创建图片对象失败:', error);
+      resolve({ width: 0, height: 0 });
+    }
+  });
 }
 
 /**
@@ -596,9 +853,8 @@ function extractImgImages(images, seenUrls) {
         if (src.startsWith('data:image/svg+xml')) {
           // 对于data URL形式的SVG，直接解析
           try {
-            const encodedSvg = src.split(',')[1];
-            if (encodedSvg) {
-              const svgContent = decodeURIComponent(encodedSvg);
+            const svgContent = processSvgDataUrl(src);
+            if (svgContent) {
               const dimensions = parseSvgDimensions(svgContent);
               if (dimensions.width > 0 && dimensions.height > 0) {
                 width = dimensions.width;
@@ -917,11 +1173,12 @@ function extractBackgroundImages(images, seenUrls) {
                     let width = 0;
                     let height = 0;
                     try {
-                      const encodedSvg = decodedUrl.split(',')[1];
-                      const svgContent = decodeURIComponent(encodedSvg);
-                      const dimensions = parseSvgDimensions(svgContent);
-                      width = dimensions.width;
-                      height = dimensions.height;
+                      const svgContent = processSvgDataUrl(decodedUrl);
+                      if (svgContent) {
+                        const dimensions = parseSvgDimensions(svgContent);
+                        width = dimensions.width;
+                        height = dimensions.height;
+                      }
                     } catch (error) {
                       console.warn('解析SVG尺寸失败:', error);
                     }
