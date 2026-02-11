@@ -33,8 +33,13 @@ chrome.action.onClicked.addListener((tab) => {
 /**
  * 处理来自content script和sidebar的消息
  */
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'extractImages') {
+
+// Action处理函数映射
+const actionHandlers = {
+  /**
+   * 处理提取图片请求
+   */
+  extractImages: (request, sender, sendResponse) => {
     // 向content script发送消息，提取图片
     chrome.tabs.sendMessage(sender.tab.id, { action: 'extractImages' }, (response) => {
       if (response && response.images) {
@@ -44,7 +49,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     });
     return true; // 保持消息通道开放
-  } else if (request.action === 'getImages') {
+  },
+
+  /**
+   * 处理获取图片请求
+   */
+  getImages: (request, sender, sendResponse) => {
     // 从sidebar接收请求，向content script发送消息提取图片
     const tabId = request.tabId;
     if (tabId) {
@@ -70,7 +80,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else {
       sendResponse({ images: [] });
     }
-  } else if (request.action === 'getCachedImage') {
+  },
+
+  /**
+   * 处理获取缓存图片请求
+   */
+  getCachedImage: (request, sender, sendResponse) => {
     // 从sidebar接收请求，向content script发送消息获取缓存图片
     const tabId = request.tabId;
     const url = request.url;
@@ -100,7 +115,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else {
       sendResponse({ success: false, error: '缺少必要参数' });
     }
-  } else if (request.action === 'downloadImage') {
+  },
+
+  /**
+   * 处理图片下载请求
+   */
+  downloadImage: (request, sender, sendResponse) => {
     // 处理图片下载请求
     downloadImage(request.url, request.filename).then(() => {
       sendResponse({ success: true });
@@ -109,7 +129,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, error: error.message });
     });
     return true; // 保持消息通道开放
-  } else if (request.action === 'downloadAllImages') {
+  },
+
+  /**
+   * 处理批量下载请求
+   */
+  downloadAllImages: (request, sender, sendResponse) => {
     // 处理批量下载请求（逐个下载）
     const images = request.images;
     if (images && images.length > 0) {
@@ -127,6 +152,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, error: '没有图片可下载' });
     }
     return true; // 保持消息通道开放
+  }
+};
+
+// 消息监听器
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  const action = request.action;
+  if (action && actionHandlers[action]) {
+    return actionHandlers[action](request, sender, sendResponse);
+  } else {
+    console.warn('未处理的action:', action);
+    sendResponse({ success: false, error: '未知的action' });
   }
 });
 
